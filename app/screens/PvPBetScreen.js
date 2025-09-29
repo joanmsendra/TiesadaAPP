@@ -1,181 +1,235 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getOpenPvPBets, acceptPvPBet, getMatches, getPlayers, BET_ODDS } from '../api/storage';
-import { Colors, Fonts, Spacing } from '../constants';
+import { useRealtimePlayers, useRealtimeMatches, useRealtimePlayerBets, useRealtimeOpenPvPBets } from '../hooks/useRealtimeData';
+import { acceptPvPBet } from '../api/storage';
+import { getOddsForBet } from '../api/betConstants';
+import { useTheme } from '../context/ThemeContext';
+import { Fonts, Spacing } from '../constants';
+import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 const PvPBetScreen = () => {
-    const navigation = useNavigation();
-    const [openBets, setOpenBets] = useState([]);
-    const [matches, setMatches] = useState({});
-    const [players, setPlayers] = useState({});
-    const [loading, setLoading] = useState(true);
+    const [playerId, setPlayerId] = useState(null);
+    const [player, setPlayer] = useState(null);
+    const { theme } = useTheme();
+    const { t } = useTranslation();
 
-    const loadData = async () => {
-        setLoading(true);
-        try {
-            const playerId = await AsyncStorage.getItem('selectedPlayerId');
-            const bets = await getOpenPvPBets(playerId);
-            setOpenBets(bets);
+    // Hooks de datos en tiempo real
+    const { data: players } = useRealtimePlayers();
+    const { data: matches } = useRealtimeMatches();
+    const { data: myBets } = useRealtimePlayerBets(playerId);
+    const { data: openBets, loading, refetch: refetchOpenBets } = useRealtimeOpenPvPBets(playerId);
 
-            const allMatches = await getMatches();
-            const matchMap = allMatches.reduce((acc, m) => ({ ...acc, [m.id]: m }), {});
-            setMatches(matchMap);
-
-            const allPlayers = await getPlayers();
-            const playerMap = allPlayers.reduce((acc, p) => ({ ...acc, [p.id]: p }), {});
-            setPlayers(playerMap);
-
-        } catch (e) {
-            console.error('Failed to load open PvP bets', e);
-        } finally {
-            setLoading(false);
-        }
-    };
+    const playersMap = useMemo(() => players.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}), [players]);
+    const matchesMap = useMemo(() => matches.reduce((acc, m) => ({ ...acc, [m.id]: m }), {}), [matches]);
 
     useFocusEffect(
         useCallback(() => {
-            loadData();
-        }, [])
+            const loadPlayer = async () => {
+                const id = await AsyncStorage.getItem('selectedPlayerId');
+                setPlayerId(id);
+                if (playersMap[id]) {
+                    setPlayer(playersMap[id]);
+                }
+            };
+            loadPlayer();
+        }, [playersMap])
     );
+    
+    const availableCoins = useMemo(() => {
+        if (!player) return 0;
+        if (!myBets || !myBets.length) return player.coins;
 
-    const handleAcceptBet = async (betId) => {
+        const moneyInActiveBets = myBets.reduce((total, bet) => {
+            if (bet.status === 'active' || bet.status === 'pending') {
+                if (bet.betMode === 'standard') {
+                    return total + bet.amount;
+                } else { // pvp
+                    if (bet.proposerId === player.id) {
+                        return total + bet.amount;
+                    } else if (bet.accepterId === player.id) {
+                        const odds = getOddsForBet(bet);
+                        const accepterStake = Math.round(bet.amount * odds);
+                        return total + accepterStake;
+                    }
+                }
+            }
+            return total;
+        }, 0);
+
+        return (player.coins || 0) - moneyInActiveBets;
+    }, [player, myBets]);
+
+
+    const handleAcceptBet = async (bet) => {
+        let accepterStake = 0;
+        if (bet.type === 'custom_pvp') {
+            accepterStake = Math.round(bet.amount * bet.details.custom_odds);
+        } else {
+            const odds = getOddsForBet(bet);
+            accepterStake = Math.round(bet.amount * odds);
+        }
+
+        if (availableCoins < accepterStake) {
+            Alert.alert(t('alerts.notEnoughCoins'), t('pvpBets.needCoins', { amount: accepterStake }));
+            return;
+        }
+
         try {
-            const playerId = await AsyncStorage.getItem('selectedPlayerId');
-            await acceptPvPBet(betId, playerId);
-            Alert.alert('¡Éxito!', 'Has aceptado la apuesta.');
-            loadData(); // Refresh the list
+            await acceptPvPBet(bet.id, playerId);
+            Alert.alert(t('alerts.success'), t('alerts.betAccepted'));
+            refetchOpenBets(); 
         } catch (e) {
-            Alert.alert('Error', e.message);
+            Alert.alert(t('alerts.error'), e.message);
         }
     };
 
     const renderBetDetails = (bet) => {
         if (bet.type === 'result') {
-          return `Resultado: ${bet.details.us} - ${bet.details.them}`;
+          return t('myBets.resultBet') + `: ${bet.details.us} - ${bet.details.them}`;
         }
         if (bet.type === 'player_event') {
-          const playerName = players[bet.details.playerId]?.name || 'Jugador';
+          const playerName = playersMap[bet.details.playerId]?.name || t('common.player');
           const eventText = {
-              scores: `marcará`,
-              assists: `asistirá`,
-              gets_card: `recibirá tarjeta`,
-              no_card: `no recibirá tarjeta`
+              scores: t('pvpBets.willScore', 'marcarà'),
+              assists: t('pvpBets.willAssist', 'assistirà'),
+              gets_card: t('pvpBets.willGetCard', 'rebrà targeta'),
+              no_card: t('pvpBets.willNotGetCard', 'no rebrà targeta'),
+              cagadas: t('pvpBets.willMakeError', 'tindrà una cagada')
           }[bet.details.event];
           return `${playerName} ${eventText}`;
+        }
+        if (bet.type === 'custom_pvp') {
+            return bet.details.custom_description;
         }
         return '';
     };
 
-    const getOddsForBet = (bet) => {
-        if (bet.type === 'result') return BET_ODDS.RESULT;
-        if (bet.type === 'player_event') {
-            switch (bet.details.event) {
-                case 'scores': return BET_ODDS.PLAYER_SCORES;
-                case 'assists': return BET_ODDS.PLAYER_ASSISTS;
-                case 'gets_card': return BET_ODDS.PLAYER_GETS_CARD;
-                case 'no_card': return BET_ODDS.PLAYER_NO_CARD;
-                default: return 1;
-            }
-        }
-        return 1;
-    };
-
     const renderBetItem = ({ item }) => {
-        const match = matches[item.matchId];
-        const proposer = players[item.proposerId];
+        const match = matchesMap[item.matchId];
+        const proposer = playersMap[item.proposerId];
         if (!match || !proposer) return null;
 
-        const odds = getOddsForBet(item);
-        const potentialLoss = item.amount * odds;
+        let potentialLoss = 0;
+        if (item.type === 'custom_pvp') {
+            potentialLoss = Math.round(item.amount * item.details.custom_odds);
+        } else {
+            const odds = getOddsForBet(item);
+            potentialLoss = Math.round(item.amount * odds);
+        }
+        
         const potentialGain = item.amount;
 
         return (
-            <View style={styles.betCard}>
-                <Text style={styles.proposerText}>Propuesta por: {proposer.name}</Text>
-                <Text style={styles.matchText}>Partido: vs {match.opponent}</Text>
-                <Text style={styles.betDetailText}>{renderBetDetails(item)}</Text>
-                <View style={styles.amountContainer}>
-                    <Text style={styles.amountText}>Apuesta en contra:</Text>
+            <View style={[styles.betCard, { backgroundColor: theme.surface }]}>
+                <Text style={[styles.proposerText, { color: theme.textPrimary }]}>{t('pvpBets.proposedBy', 'Proposada per')}: {proposer.name}</Text>
+                <Text style={[styles.matchText, { color: theme.textSecondary }]}>{t('common.match')}: vs {match.opponent}</Text>
+                <Text style={[styles.betDetailText, { color: theme.textPrimary }]}>{renderBetDetails(item)}</Text>
+                <View style={[styles.amountContainer, { borderColor: theme.border }]}>
+                    <Text style={[styles.amountText, { color: theme.textPrimary }]}>{t('pvpBets.betAgainst', 'Aposta en contra')}:</Text>
                     <View style={styles.winningsContainer}>
-                        <Text style={styles.winningsText}>Ganas: {potentialGain} monedas</Text>
-                        <Text style={styles.riskText}>Arriesgas: {potentialLoss} monedas</Text>
+                        <Text style={[styles.winningsText, { color: theme.success }]}>{t('pvpBets.youWin', 'Guanyes')}: {potentialGain} {t('common.coins').toLowerCase()}</Text>
+                        <Text style={[styles.riskText, { color: theme.error }]}>{t('myBets.risk')}: {potentialLoss} {t('common.coins').toLowerCase()}</Text>
                     </View>
                 </View>
-                <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptBet(item.id)}>
-                    <Text style={styles.acceptButtonText}>Aceptar Apuesta</Text>
+                <TouchableOpacity style={[styles.acceptButton, { backgroundColor: theme.success }]} onPress={() => handleAcceptBet(item)}>
+                    <Text style={[styles.acceptButtonText, { color: theme.white }]}>{t('pvpBets.accept')}</Text>
                 </TouchableOpacity>
             </View>
         );
     };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={styles.headerContainer}>
+            <Text style={[styles.title, { color: theme.textPrimary }]}>{t('pvpBets.title')}</Text>
+            {player && (
+                <View style={[styles.walletContainer, { backgroundColor: theme.surface }]}>
+                    <Ionicons name="cash" size={Fonts.size.lg} color={theme.primary} />
+                    <Text style={[styles.coinText, { color: theme.primary }]}>{player.coins} {t('common.coins')}</Text>
+                </View>
+            )}
+        </View>
       <FlatList
         data={openBets}
         keyExtractor={(item) => item.id}
         renderItem={renderBetItem}
-        ListHeaderComponent={<Text style={styles.title}>Apuestas JcJ Abiertas</Text>}
-        ListEmptyComponent={<Text style={styles.emptyText}>No hay apuestas propuestas por otros jugadores.</Text>}
+        ListEmptyComponent={!loading && <Text style={[styles.emptyText, { color: theme.textSecondary }]}>{t('pvpBets.noBets')}</Text>}
         contentContainerStyle={styles.listContent}
         refreshing={loading}
-        onRefresh={loadData}
+        onRefresh={refetchOpenBets}
       />
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  container: { flex: 1 },
   listContent: { padding: Spacing.md },
+  headerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
+  },
   title: {
     fontFamily: Fonts.family.bold,
-    fontSize: Fonts.size.xxl,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
+    fontSize: Fonts.size.xl,
+    flex: 1, // Añadido para que el título ocupe el espacio disponible
+    marginRight: Spacing.sm, // Añadido para dar espacio al contador
+  },
+  walletContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+      borderRadius: 8,
+  },
+  coinText: {
+      fontFamily: Fonts.family.bold,
+      fontSize: Fonts.size.md,
+      marginLeft: Spacing.sm,
   },
   betCard: {
-    backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: Spacing.md,
     marginBottom: Spacing.md,
   },
-  proposerText: { fontFamily: Fonts.family.bold, fontSize: Fonts.size.md, color: Colors.textPrimary },
-  matchText: { fontFamily: Fonts.family.regular, fontSize: Fonts.size.sm, color: Colors.textSecondary, marginTop: Spacing.xs },
-  betDetailText: { fontFamily: Fonts.family.medium, fontSize: Fonts.size.md, color: Colors.textPrimary, marginTop: Spacing.sm, marginBottom: Spacing.sm },
+  proposerText: { fontFamily: Fonts.family.bold, fontSize: Fonts.size.md },
+  matchText: { fontFamily: Fonts.family.regular, fontSize: Fonts.size.sm, marginTop: Spacing.xs },
+  betDetailText: { fontFamily: Fonts.family.medium, fontSize: Fonts.size.md, marginTop: Spacing.sm, marginBottom: Spacing.sm },
   amountContainer: {
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: Colors.border,
     paddingVertical: Spacing.sm,
     marginBottom: Spacing.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  amountText: { fontFamily: Fonts.family.bold, fontSize: Fonts.size.md, color: Colors.textPrimary },
+  amountText: { fontFamily: Fonts.family.bold, fontSize: Fonts.size.md },
   winningsContainer: {
     alignItems: 'flex-end',
   },
   winningsText: {
     fontFamily: Fonts.family.medium,
     fontSize: Fonts.size.sm,
-    color: Colors.success,
   },
   riskText: {
     fontFamily: Fonts.family.medium,
     fontSize: Fonts.size.sm,
-    color: Colors.error,
   },
-  acceptButton: { backgroundColor: Colors.success, padding: Spacing.md, borderRadius: 8, alignItems: 'center' },
-  acceptButtonText: { color: Colors.surface, fontFamily: Fonts.family.bold, fontSize: Fonts.size.md },
+  acceptButton: { padding: Spacing.md, borderRadius: 8, alignItems: 'center' },
+  acceptButtonText: { fontFamily: Fonts.family.bold, fontSize: Fonts.size.md },
   emptyText: {
     textAlign: 'center',
     marginTop: Spacing.lg,
     fontFamily: Fonts.family.regular,
     fontSize: Fonts.size.md,
-    color: Colors.textSecondary,
   },
 });
 

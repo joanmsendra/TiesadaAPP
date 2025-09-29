@@ -1,47 +1,92 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { updateMatchAttendance } from '../api/storage';
 import { Colors, Fonts, Spacing } from '../constants';
+import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 const MatchCard = ({ match, currentUserId }) => {
   const navigation = useNavigation();
-  const [isAttending, setIsAttending] = useState(match.attending?.includes(currentUserId));
-  const [attendingCount, setAttendingCount] = useState(match.attending?.length || 0);
+  const { theme } = useTheme();
+  const { t } = useTranslation();
+  
+  // Usar el estado para la asistencia, que se puede actualizar dinámicamente
+  const [isAttending, setIsAttending] = useState(false);
+  
+  // Obtener el contador directamente de los datos del partido (siempre actualizado)
+  const attendingCount = match.attending?.length || 0;
+  
+  // Efecto para actualizar 'isAttending' si 'currentUserId' o 'match.attending' cambian
+  useEffect(() => {
+    setIsAttending(match.attending?.includes(currentUserId));
+  }, [currentUserId, match.attending]);
+
 
   const matchDate = new Date(match.date);
 
   const handleAttendanceToggle = async () => {
-    const updatedMatch = await updateMatchAttendance(match.id, currentUserId);
-    if (updatedMatch) {
-      setIsAttending(updatedMatch.attending.includes(currentUserId));
-      setAttendingCount(updatedMatch.attending.length);
+    try {
+      const updatedMatch = await updateMatchAttendance(match.id, currentUserId);
+      if (updatedMatch) {
+        setIsAttending(updatedMatch.attending.includes(currentUserId));
+        // Ya no necesitamos actualizar attendingCount localmente porque
+        // se obtiene directamente de match.attending, que se actualiza vía tiempo real
+      } else {
+        // Si updateMatchAttendance devuelve null, significa que falló
+        Alert.alert(t('alerts.error'), t('alerts.attendanceError'));
+      }
+    } catch (error) {
+      console.error('Error toggling attendance:', error);
+      Alert.alert(t('alerts.error'), t('alerts.attendanceError'));
     }
   };
 
   const navigateToDetails = () => {
     navigation.navigate('MatchDetails', { matchId: match.id });
   };
+  
+  const cardStyle = [
+    styles.card,
+    {
+      backgroundColor: theme.surface,
+    },
+    // Corregido: Usar la variable de estado 'isAttending' y añadir la condición 'match.played'
+    (isAttending && match.played) && {
+      borderLeftWidth: 5,
+      borderLeftColor: theme.primary,
+    },
+  ];
 
   return (
     <TouchableOpacity onPress={navigateToDetails} style={styles.cardContainer}>
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.opponent}><Text style={styles.emoji}>{match.emoji || '⚽️'}</Text> {match.opponent}</Text>
+      <View style={cardStyle}>
+        <View style={styles.header}>
+          <View style={styles.headerInfo}>
+            <Text style={styles.emoji}>{match.emoji || '⚽️'}</Text>
+            <Text style={[styles.opponent, { color: theme.textPrimary }]}>{match.opponent}</Text>
+          </View>
           {match.played && (
-            <View style={styles.resultContainer}>
-                <Text style={styles.result}>{match.result.us}</Text>
-                <Text style={styles.resultSeparator}>-</Text>
-                <Text style={styles.result}>{match.result.them}</Text>
+            <View style={styles.headerRight}>
+              <View style={[styles.resultContainer, { backgroundColor: theme.background }]}>
+                  <Text style={[styles.result, { color: theme.textPrimary }]}>{match.result.us}</Text>
+                  <Text style={[styles.resultSeparator, { color: theme.textSecondary }]}>-</Text>
+                  <Text style={[styles.result, { color: theme.textPrimary }]}>{match.result.them}</Text>
+              </View>
+              {match?.youtube_url && (
+                <View style={[styles.videoIndicator, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '50'}]}>
+                  <Ionicons name="play-circle" size={16} color={theme.primary} />
+                </View>
+              )}
             </View>
           )}
         </View>
         <View style={styles.cardBody}>
             <View style={styles.leftColumn}>
                 <View style={styles.dateContainer}>
-                    <Ionicons name="calendar-outline" size={Fonts.size.md} color={Colors.textSecondary} />
-                    <Text style={styles.date}>{`${matchDate.toLocaleDateString('es-ES', {weekday: 'long', day: 'numeric', month: 'long'})} - ${matchDate.toLocaleTimeString([], {
+                    <Ionicons name="calendar-outline" size={Fonts.size.md} color={theme.textSecondary} />
+                    <Text style={[styles.date, { color: theme.textSecondary }]}>{`${matchDate.toLocaleDateString('es-ES', {weekday: 'long', day: 'numeric', month: 'long'})} - ${matchDate.toLocaleTimeString([], {
                     hour: '2-digit',
                     minute: '2-digit',
                     })}h`}</Text>
@@ -51,14 +96,14 @@ const MatchCard = ({ match, currentUserId }) => {
                         style={[styles.attendanceButton, isAttending ? styles.attending : styles.notAttending]}
                         onPress={handleAttendanceToggle}
                     >
-                        <Ionicons name={isAttending ? 'checkmark-circle' : 'add-circle-outline'} size={Fonts.size.lg} color={Colors.surface} />
-                        <Text style={styles.attendanceButtonText}>{isAttending ? 'Apuntado' : 'Apuntarse'}</Text>
+                        <Ionicons name={isAttending ? 'checkmark-circle' : 'add-circle-outline'} size={Fonts.size.lg} color={theme.surface} />
+                        <Text style={styles.attendanceButtonText}>{isAttending ? t('matchDetails.signedUp') : t('matchDetails.signUp')}</Text>
                     </TouchableOpacity>
                 )}
             </View>
             {!match.played && (
                 <View style={styles.rightColumn}>
-                    <Text style={styles.attendanceCount}>{`${attendingCount} apuntados`}</Text>
+                    <Text style={styles.attendanceCount}>{`${attendingCount} ${t('matchDetails.playersSignedUp')}`}</Text>
                 </View>
             )}
         </View>
@@ -82,39 +127,38 @@ const styles = StyleSheet.create({
         shadowRadius: 10,
         elevation: 5,
     },
-    cardHeader: {
+    header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: Spacing.md,
     },
+    headerInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
     opponent: {
         fontFamily: Fonts.family.bold,
         fontSize: Fonts.size.lg,
-        color: Colors.textPrimary,
-        flex: 1,
     },
     emoji: {
-        fontSize: Fonts.size.lg,
+        fontSize: Fonts.size.xxl,
+        marginRight: Spacing.md,
     },
     resultContainer: {
         flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: Colors.background,
-        paddingHorizontal: Spacing.md,
+        alignItems: 'baseline',
+        paddingHorizontal: Spacing.sm,
         paddingVertical: Spacing.xs,
-        borderRadius: 8,
+        borderRadius: 6,
     },
     result: {
         fontFamily: Fonts.family.bold,
         fontSize: Fonts.size.lg,
-        color: Colors.primary,
     },
     resultSeparator: {
         fontFamily: Fonts.family.bold,
-        fontSize: Fonts.size.lg,
-        color: Colors.textSecondary,
-        marginHorizontal: Spacing.sm,
+        marginHorizontal: Spacing.xs,
     },
     cardBody: {
         flexDirection: 'row',
@@ -132,12 +176,12 @@ const styles = StyleSheet.create({
     dateContainer: {
         flexDirection: 'row',
         alignItems: 'center',
+        marginTop: Spacing.xs,
     },
     date: {
-        marginLeft: Spacing.sm,
         fontFamily: Fonts.family.regular,
         fontSize: Fonts.size.sm,
-        color: Colors.textSecondary,
+        marginLeft: Spacing.sm,
     },
     attendanceContainer: {
         alignItems: 'flex-end',
@@ -171,6 +215,16 @@ const styles = StyleSheet.create({
         fontSize: Fonts.size.sm,
         fontFamily: Fonts.family.medium,
         color: Colors.textSecondary,
+    },
+    headerRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.sm,
+    },
+    videoIndicator: {
+        borderRadius: 12,
+        padding: Spacing.xs,
+        borderWidth: 1,
     },
 });
 

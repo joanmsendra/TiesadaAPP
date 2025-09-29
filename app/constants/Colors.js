@@ -12,7 +12,7 @@ export const Colors = {
   background: lightGray,
   surface: white,
   
-  textPrimary: darkText,
+  textPrimary: '#2D2D2D',
   textSecondary: midGray,
   
   border: '#D1D1D6',

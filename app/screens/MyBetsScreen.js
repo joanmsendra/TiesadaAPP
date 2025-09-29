@@ -1,186 +1,260 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, FlatList, ActivityIndicator, LayoutAnimation } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getPlayerBets, getMatches, getPlayers, BET_ODDS } from '../api/storage';
-import { Colors, Fonts, Spacing } from '../constants';
+import { useRealtimePlayerBets, useRealtimePlayers, useRealtimeMatches } from '../hooks/useRealtimeData';
+import { getOddsForBet } from '../api/betConstants';
+import { useTheme } from '../context/ThemeContext';
+import { Fonts, Spacing } from '../constants';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 const MyBetsScreen = () => {
-  const [bets, setBets] = useState([]);
-  const [matches, setMatches] = useState({});
-  const [players, setPlayers] = useState({});
   const [player, setPlayer] = useState(null);
   const [playerId, setPlayerId] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { theme } = useTheme();
+  const { t } = useTranslation();
+  
+  // Usar hooks de tiempo real
+  const { data: players } = useRealtimePlayers();
+  const { data: matches } = useRealtimeMatches();
+  const { data: bets, loading } = useRealtimePlayerBets(playerId);
+  
+  // Convertir arrays a objetos para facilitar el acceso
+  const playersMap = useMemo(() => {
+    return players.reduce((acc, player) => {
+      acc[player.id] = player;
+      return acc;
+    }, {});
+  }, [players]);
+  
+  const matchesMap = useMemo(() => {
+    return matches.reduce((acc, match) => {
+      acc[match.id] = match;
+      return acc;
+    }, {});
+  }, [matches]);
 
+  // Función para obtener el estado de la apuesta desde la perspectiva del jugador
+  const getPlayerStatus = (bet, currentUserId) => {
+      if (bet.betMode !== 'pvp' || !['won', 'lost', 'void'].includes(bet.status)) {
+          return bet.status;
+      }
+      
+      const isProposer = bet.proposerId === currentUserId;
+      
+      if ((isProposer && bet.status === 'won') || (!isProposer && bet.status === 'lost')) {
+          return 'won';
+      }
+      return 'lost';
+  };
+
+  const sortedBets = useMemo(() => {
+    const statusOrder = {
+      'pending': 1,
+      'active': 2,
+      'won': 3,
+      'lost': 4,
+      'void': 5,
+    };
+
+    return [...bets].sort((a, b) => {
+      const playerStatusA = getPlayerStatus(a, playerId);
+      const playerStatusB = getPlayerStatus(b, playerId);
+      
+      // Primero, ordenar por estado (pendientes y activas primero)
+      const orderA = statusOrder[playerStatusA] || 99;
+      const orderB = statusOrder[playerStatusB] || 99;
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+
+      // Si el estado es el mismo, ordenar por fecha del partido (más nuevo primero)
+      const matchA = matchesMap[a.matchId];
+      const matchB = matchesMap[b.matchId];
+      if (!matchA || !matchB) return 0;
+      return new Date(matchB.date) - new Date(a.date);
+    });
+  }, [bets, matchesMap, playerId]);
+
+  const getBetDescription = (bet, players, matches) => {
+      const match = matchesMap[bet.matchId];
+      if (!match) {
+          return t('myBets.betDetailsNotAvailable', 'Detalls de l\'aposta no disponibles');
+      }
+
+      if (bet.type === 'result') {
+          return t('myBets.resultBet', `Resultat: ${match.opponent} ${bet.details.us}-${bet.details.them}`);
+      }
+      if (bet.type === 'player_event') {
+          const player = playersMap[bet.details.playerId];
+          const eventText = {
+              scores: t('myBets.scores', 'marca'),
+              assists: t('myBets.assists', 'assisteix'),
+              gets_card: t('myBets.getsCard', 'rep targeta'),
+              no_card: t('myBets.noCard', 'no rep targeta'),
+              cagadas: t('myBets.makesError', 'fa una cagada')
+          };
+          return `${player?.name || t('common.player')} ${eventText[bet.details.event] || ''} vs ${match.opponent}`;
+      }
+      if (bet.type === 'custom_pvp') {
+          return bet.details.custom_description;
+      }
+      return t('myBets.betOn', `Aposta a ${match.opponent}`);
+  };
+
+  // Cargar ID del jugador al enfocar la pantalla
   useFocusEffect(
     useCallback(() => {
-      const loadData = async () => {
-        setLoading(true);
+      const loadPlayerId = async () => {
         try {
-          const playerId = await AsyncStorage.getItem('selectedPlayerId');
-          setPlayerId(playerId);
+          const id = await AsyncStorage.getItem('selectedPlayerId');
+          setPlayerId(id);
           
-          const allPlayers = await getPlayers();
-          const playerMap = allPlayers.reduce((acc, p) => ({ ...acc, [p.id]: p }), {});
-          setPlayers(playerMap);
-          setPlayer(playerMap[playerId]);
-
-          const playerBets = await getPlayerBets(playerId);
-          
-          const allMatches = await getMatches();
-          const matchMap = allMatches.reduce((acc, m) => ({ ...acc, [m.id]: m }), {});
-          setMatches(matchMap);
-
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          setBets(playerBets.sort((a, b) => new Date(matchMap[b.matchId]?.date) - new Date(matchMap[a.matchId]?.date)));
+          // Buscar el jugador actual
+          const currentPlayer = playersMap[id];
+          setPlayer(currentPlayer);
         } catch (e) {
-          console.error('Failed to load bets', e);
-        } finally {
-          setLoading(false);
+          console.error('Failed to load player ID', e);
         }
       };
-      loadData();
-    }, [])
+      loadPlayerId();
+    }, [playersMap])
   );
 
   const getBetStatusStyle = (status) => {
-    if (status === 'won') return { backgroundColor: Colors.success, color: Colors.surface, text: 'Ganada' };
-    if (status === 'lost') return { backgroundColor: Colors.error, color: Colors.surface, text: 'Perdida' };
-    return { backgroundColor: Colors.border, color: Colors.textSecondary, text: 'Pendiente' };
-  };
+    switch (status) {
+        case 'won':
+            return { backgroundColor: theme.success, color: theme.surface, text: t('betting.status.won') };
+        case 'lost':
+            return { backgroundColor: theme.error, color: theme.surface, text: t('betting.status.lost') };
+        case 'active':
+            return { backgroundColor: '#3498db', color: theme.white, text: t('betting.status.active').toUpperCase() };
+        case 'void':
+            return { backgroundColor: '#bdc3c7', color: theme.textPrimary, text: t('betting.status.void').toUpperCase() };
+        default:
+            return { backgroundColor: theme.border, color: theme.textSecondary, text: t('betting.status.pending').toUpperCase() };
+    }
+};
 
   const renderBetDetails = (bet) => {
     if (bet.type === 'result') {
       return `Resultado: ${bet.details.us} - ${bet.details.them}`;
     }
     if (bet.type === 'player_event') {
-      const playerName = players[bet.details.playerId]?.name || 'Jugador';
+      const playerName = playersMap[bet.details.playerId]?.name || 'Jugador';
       return `${playerName} marcará ${bet.details.goals > 1 ? bet.details.goals : ''} ${bet.details.goals > 1 ? 'o más goles' : 'gol'}`;
     }
     return '';
   };
 
-  const getOddsForBet = (bet) => {
-    if (bet.type === 'result') return BET_ODDS.RESULT;
-    if (bet.type === 'player_event') {
-        switch (bet.details.event) {
-            case 'scores': return BET_ODDS.PLAYER_SCORES;
-            case 'assists': return BET_ODDS.PLAYER_ASSISTS;
-            case 'gets_card': return BET_ODDS.PLAYER_GETS_CARD;
-            case 'no_card': return BET_ODDS.PLAYER_NO_CARD;
-            default: return 1;
-        }
-    }
-    return 1;
-  };
-
   const renderBetItem = ({ item }) => {
-    const match = matches[item.matchId];
-    if (!match) return null;
-    
-    const statusStyle = getBetStatusStyle(item.status);
-    const isProposer = item.proposerId === playerId;
+      // --- DEFENSA CONTRA DATOS CORRUPTOS ---
+      const match = matchesMap[item.match_id];
+      if (!match || !item.details) {
+          console.warn("Saltando apuesta con datos incompletos:", item.id);
+          return null; // No renderizar esta apuesta si le faltan datos
+      }
+      // --- FIN DE LA DEFENSA ---
 
-    // For PvP bets, determine the opponent
-    let opponentPlayer = null;
-    if (item.betMode === 'pvp') {
-        const opponentId = isProposer ? item.accepterId : item.proposerId;
-        opponentPlayer = players[opponentId];
-    }
+      const isProposer = item.proposer_id === playerId;
 
-    // For PvP bets, interpret the status from the current player's perspective
-    let playerStatus = item.status;
-    if (item.betMode === 'pvp' && item.status !== 'proposed' && item.status !== 'active') {
-        if ((isProposer && item.status === 'won') || (!isProposer && item.status === 'lost')) {
-            playerStatus = 'won';
-        } else {
-            playerStatus = 'lost';
-        }
-    }
+      let odds = 1;
+      if (item.type === 'custom_pvp') {
+          odds = item.details.custom_odds || 1;
+      } else {
+          odds = getOddsForBet({ ...item, type: item.type, details: item.details }); // Asegurar que pasamos un objeto válido
+      }
+      
+      const accepterStake = item.bet_mode === 'pvp' ? Math.round(item.amount * odds) : 0;
+      
+      let risk = 0;
+      let potentialProfit = 0;
 
-    const finalStatusStyle = getBetStatusStyle(playerStatus);
+      if (item.betMode === 'standard') {
+          risk = item.amount;
+          potentialProfit = Math.round(item.amount * odds);
+      } else { // pvp
+          if (isProposer) {
+              risk = item.amount;
+              potentialProfit = accepterStake; // Tu ganas lo que el otro arriesga
+          } else { // is accepter
+              risk = accepterStake;
+              potentialProfit = item.amount; // Tu ganas lo que el otro arriesgó
+          }
+      }
+      
+      const playerStatus = getPlayerStatus(item, playerId);
+      const finalStatusStyle = getBetStatusStyle(playerStatus);
 
-    const odds = getOddsForBet(item);
-    let risk = 0;
-    let potentialGain = 0;
+      const betStatusStyle = {
+          backgroundColor: finalStatusStyle.backgroundColor,
+          color: finalStatusStyle.color,
+          text: finalStatusStyle.text,
+      };
 
-    if (item.betMode === 'standard') {
-        risk = item.amount;
-        potentialGain = item.amount * odds;
-    } else { // pvp
-        if (isProposer) {
-            risk = item.amount;
-            potentialGain = item.amount * odds;
-        } else { // is accepter
-            risk = item.amount * odds;
-            potentialGain = item.amount;
-        }
-    }
+      const opponentPlayer = item.bet_mode === 'pvp' ? (isProposer ? playersMap[item.accepter_id] : playersMap[item.proposer_id]) : null;
 
+      return (
+          <View style={[styles.betCard, { borderLeftColor: betStatusStyle.backgroundColor, backgroundColor: theme.surface }]}>
+              <View style={styles.betHeader}>
+                  <Text style={[styles.betOpponent, { color: theme.textPrimary }]}>vs {match.opponent}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: betStatusStyle.backgroundColor }]}>
+                      <Text style={[styles.statusText, { color: betStatusStyle.color }]}>{betStatusStyle.text}</Text>
+                  </View>
+              </View>
 
-    return (
-      <View style={styles.betCard}>
-        <View style={styles.betHeader}>
-            <Text style={styles.betOpponent}>vs {match.opponent}</Text>
-            <View style={[styles.statusBadge, { backgroundColor: finalStatusStyle.backgroundColor }]}>
-                <Text style={[styles.statusText, { color: finalStatusStyle.color }]}>{finalStatusStyle.text}</Text>
-            </View>
-        </View>
+              <View style={styles.betDetails}>
+                  <Text style={[styles.betMatchInfo, { color: theme.textSecondary }]} numberOfLines={2}>{getBetDescription(item, playersMap, matchesMap)}</Text>
+                  
+                  {item.bet_mode === 'pvp' && opponentPlayer && (
+                      <Text style={[styles.pvpOpponent, { color: theme.primary }]}>{t('myBets.against')}: {opponentPlayer.name}</Text>
+                  )}
 
-        {item.betMode === 'pvp' && (
-            <Text style={styles.pvpInfo}>
-                {isProposer ? 'Propuesta a' : 'Aceptada de'} {opponentPlayer ? opponentPlayer.name : '...'}
-            </Text>
-        )}
-
-        <Text style={styles.betDetails}>{renderBetDetails(item)}</Text>
-        <View style={styles.betFooter}>
-            <View>
-                <Text style={styles.betAmount}>Arriesgas: {risk} monedas</Text>
-                {playerStatus !== 'won' && playerStatus !== 'lost' &&
-                    <Text style={[styles.betPayout, {color: Colors.textSecondary, fontSize: Fonts.size.xs}]}>
-                        Ganancia Pot.: {potentialGain} monedas
-                    </Text>
-                }
-            </View>
-            {playerStatus === 'won' && 
-                <Text style={styles.betPayout}>
-                    Ganaste: {potentialGain} monedas
-                </Text>
-            }
-            {playerStatus === 'lost' &&
-                <Text style={[styles.betPayout, {color: Colors.error}]}>
-                    Perdiste: {risk} monedas
-                </Text>
-            }
-        </View>
-      </View>
-    );
+                  <Text style={[styles.betRisk, { color: theme.textSecondary }]}>{t('myBets.risk')}: {risk} {t('common.coins').toLowerCase()}</Text>
+                  {playerStatus !== 'won' && playerStatus !== 'lost' &&
+                      <Text style={[styles.betPayout, { color: theme.success }]}>
+                          {t('myBets.potentialProfit')}: {potentialProfit} {t('common.coins').toLowerCase()}
+                      </Text>
+                  }
+              </View>
+              {playerStatus === 'won' && 
+                  <Text style={[styles.betWin, { color: theme.success }]}>
+                      {t('myBets.won')}: {potentialProfit} {t('common.coins').toLowerCase()}
+                  </Text>
+              }
+               {playerStatus === 'lost' &&
+                  <Text style={[styles.betLoss, { color: theme.error }]}>
+                      {t('myBets.lost')}: {risk} {t('common.coins').toLowerCase()}
+                  </Text>
+              }
+          </View>
+      );
   };
 
   if (loading) {
-    return <ActivityIndicator style={styles.center} size="large" color={Colors.primary} />;
+    return <ActivityIndicator style={styles.center} size="large" color={theme.primary} />;
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.headerContainer}>
-        <Text style={styles.title}>Mis Apuestas</Text>
-        {player && (
-            <View style={styles.walletContainer}>
-                <Ionicons name="cash" size={Fonts.size.lg} color={Colors.primary} />
-                <Text style={styles.coinText}>{player.coins} Monedas</Text>
-            </View>
-        )}
+        <Text style={[styles.title, { color: theme.textPrimary }]}>{t('myBets.title')}</Text>
       </View>
+      {player && (
+        <View style={styles.walletSection}>
+          <View style={[styles.walletContainer, { backgroundColor: theme.surface }]}>
+            <Ionicons name="cash" size={Fonts.size.lg} color={theme.primary} />
+            <Text style={[styles.coinText, { color: theme.primary }]}>{player.coins} {t('common.coins')}</Text>
+          </View>
+        </View>
+      )}
 
       <FlatList
-        data={bets}
+        data={sortedBets}
         keyExtractor={(item) => item.id}
         renderItem={renderBetItem}
-        ListEmptyComponent={<Text style={styles.emptyText}>Todavía no has hecho ninguna apuesta.</Text>}
+        ListEmptyComponent={<Text style={[styles.emptyText, { color: theme.textSecondary }]}>{t('myBets.noBets')}</Text>}
         contentContainerStyle={styles.listContent}
       />
     </SafeAreaView>
@@ -188,32 +262,32 @@ const MyBetsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   headerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.lg,
+    paddingBottom: Spacing.sm,
+  },
+  walletSection: {
+    paddingHorizontal: Spacing.md,
     paddingBottom: Spacing.md,
+    alignItems: 'center',
   },
   title: {
     fontFamily: Fonts.family.bold,
     fontSize: Fonts.size.xxl,
-    color: Colors.textPrimary,
+    textAlign: 'center',
   },
   walletContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
     padding: Spacing.sm,
     borderRadius: 8,
 },
 coinText: {
     fontFamily: Fonts.family.bold,
     fontSize: Fonts.size.md,
-    color: Colors.primary,
     marginLeft: Spacing.sm,
 },
   listContent: {
@@ -221,10 +295,10 @@ coinText: {
     paddingBottom: Spacing.lg,
   },
   betCard: {
-    backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: Spacing.md,
     marginBottom: Spacing.md,
+    borderLeftWidth: 5, // Added for the new border
   },
   betHeader: {
     flexDirection: 'row',
@@ -235,16 +309,14 @@ coinText: {
   betOpponent: {
     fontFamily: Fonts.family.bold,
     fontSize: Fonts.size.md,
-    color: Colors.textPrimary,
   },
   pvpInfo: {
     fontFamily: Fonts.family.medium,
     fontSize: Fonts.size.sm,
-    color: Colors.primary,
     marginBottom: Spacing.sm,
     paddingBottom: Spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: '#e0e0e0', // Placeholder for border, will be theme-aware
   },
   statusBadge: {
     paddingHorizontal: Spacing.sm,
@@ -258,7 +330,6 @@ coinText: {
   betDetails: {
     fontFamily: Fonts.family.regular,
     fontSize: Fonts.size.md,
-    color: Colors.textSecondary,
     marginBottom: Spacing.md,
   },
   betFooter: {
@@ -266,25 +337,37 @@ coinText: {
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: '#e0e0e0', // Placeholder for border, will be theme-aware
     paddingTop: Spacing.sm,
   },
   betAmount: {
     fontFamily: Fonts.family.medium,
     fontSize: Fonts.size.sm,
-    color: Colors.textPrimary,
   },
   betPayout: {
     fontFamily: Fonts.family.bold,
     fontSize: Fonts.size.sm,
-    color: Colors.success,
   },
   emptyText: {
     textAlign: 'center',
     marginTop: Spacing.lg,
     fontFamily: Fonts.family.regular,
     fontSize: Fonts.size.md,
-    color: Colors.textSecondary,
+  },
+  pvpOpponent: { // Added for the new style
+    fontFamily: Fonts.family.medium,
+    fontSize: Fonts.size.sm,
+    marginBottom: Spacing.sm,
+  },
+  betWin: { // Added for the new style
+    fontFamily: Fonts.family.bold,
+    fontSize: Fonts.size.sm,
+    marginTop: Spacing.sm,
+  },
+  betLoss: { // Added for the new style
+    fontFamily: Fonts.family.bold,
+    fontSize: Fonts.size.sm,
+    marginTop: Spacing.sm,
   },
 });
 

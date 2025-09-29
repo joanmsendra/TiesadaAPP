@@ -1,13 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, SafeAreaView, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, SafeAreaView, Dimensions, Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getPlayers } from '../api/storage';
+import { registerForPushNotificationsAsync, savePushToken } from '../api/notifications';
 import { Colors, Fonts, Spacing } from '../constants';
 import { Image } from 'expo-image';
+import { useTranslation } from 'react-i18next';
 
 const PlayerSelectionScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [players, setPlayers] = useState([]);
+  const { t } = useTranslation();
 
   useEffect(() => {
     const checkPlayer = async () => {
@@ -52,8 +56,8 @@ const PlayerSelectionScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>¿Qué jugador eres?</Text>
-        <Text style={styles.subtitle}>Selecciona tu perfil para continuar</Text>
+        <Text style={styles.title}>{t('playerSelection.title', '¿Qué jugador eres?')}</Text>
+        <Text style={styles.subtitle}>{t('playerSelection.subtitle', 'Selecciona tu perfil para continuar')}</Text>
       </View>
       <FlatList
         data={players}

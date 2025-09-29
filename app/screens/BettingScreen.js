@@ -1,98 +1,111 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getPlayers, getMatches } from '../api/storage';
-import { Colors, Fonts, Spacing } from '../constants';
+import { useRealtimePlayers, useRealtimeMatches, useRealtimePlayerBets } from '../hooks/useRealtimeData';
+import FadeInView from '../components/FadeInView';
+import { useTheme } from '../context/ThemeContext';
+import { Fonts, Spacing } from '../constants';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 const BettingScreen = () => {
   const navigation = useNavigation();
   const [player, setPlayer] = useState(null);
-  const [upcomingMatches, setUpcomingMatches] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [playerId, setPlayerId] = useState(null);
+  const { theme } = useTheme();
+  const { t } = useTranslation();
+  
+  // Usar hooks de tiempo real
+  const { data: players } = useRealtimePlayers();
+  const { data: matches, loading } = useRealtimeMatches();
+  // Forzar la actualización cuando las apuestas del jugador cambien
+  useRealtimePlayerBets(playerId);
 
+  // Calcular partidos futuros usando useMemo
+  const upcomingMatches = useMemo(() => {
+    if (!matches.length) return [];
+    
+    // Mostrar solo partidos que no se han jugado, ordenados por fecha más cercana
+    return matches
+      .filter(m => !m.played)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [matches]);
+
+  // Cargar jugador actual
   useFocusEffect(
     useCallback(() => {
-      const loadData = async () => {
-        if (upcomingMatches.length === 0) {
-            setLoading(true);
-        }
+      const loadPlayer = async () => {
         try {
-          const playerId = await AsyncStorage.getItem('selectedPlayerId');
-          const players = await getPlayers();
-          const currentPlayer = players.find(p => p.id === playerId);
+          const id = await AsyncStorage.getItem('selectedPlayerId');
+          setPlayerId(id);
+          const currentPlayer = players.find(p => p.id === id);
           setPlayer(currentPlayer);
-
-          const allMatches = await getMatches();
-          const futureMatches = allMatches
-            .filter(m => !m.played && new Date(m.date) > new Date())
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
-          setUpcomingMatches(futureMatches);
         } catch (e) {
-          console.error('Failed to load betting data.', e);
-        } finally {
-          setLoading(false);
+          console.error('Failed to load player data.', e);
         }
       };
-      loadData();
-    }, [])
+      
+      if (players.length > 0) {
+        loadPlayer();
+      }
+    }, [players])
   );
 
-  if (loading) {
-    return <ActivityIndicator style={styles.center} size="large" color={Colors.primary} />;
-  }
+  // Removed loading check - we'll use fade-in instead
 
-  const renderMatchItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.matchCard}
-      onPress={() => navigation.navigate('MakeBet', { matchId: item.id })}
-    >
-      <Text style={styles.matchEmoji}>{item.emoji || '⚽️'}</Text>
-      <View style={styles.matchInfo}>
-        <Text style={styles.matchOpponent}>{item.opponent}</Text>
-        <Text style={styles.matchDate}>
-            {new Date(item.date).toLocaleDateString('es-ES', {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})}h
-        </Text>
-      </View>
-      <Ionicons name="chevron-forward" size={Fonts.size.lg} color={Colors.textSecondary} />
-    </TouchableOpacity>
+  const renderMatchItem = ({ item, index }) => (
+    <FadeInView delay={index * 100}>
+      <TouchableOpacity 
+        style={[styles.matchCard, { backgroundColor: theme.surface }]}
+        onPress={() => navigation.navigate('MakeBet', { matchId: item.id })}
+      >
+        <Text style={styles.matchEmoji}>{item.emoji || '⚽️'}</Text>
+        <View style={styles.matchInfo}>
+          <Text style={[styles.matchOpponent, { color: theme.textPrimary }]}>{item.opponent}</Text>
+          <Text style={[styles.matchDate, { color: theme.textSecondary }]}>
+              {new Date(item.date).toLocaleDateString('es-ES', {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})}h
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={Fonts.size.lg} color={theme.textSecondary} />
+      </TouchableOpacity>
+    </FadeInView>
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.headerContainer}>
-        <Text style={styles.title}>Apostar</Text>
+        <Text style={[styles.title, { color: theme.textPrimary }]}>{t('betting.title')}</Text>
         {player && (
-            <View style={styles.walletContainer}>
-                <Ionicons name="cash" size={Fonts.size.lg} color={Colors.primary} />
-                <Text style={styles.coinText}>{player.coins} Monedas</Text>
+            <View style={[styles.walletContainer, { backgroundColor: theme.surface }]}>
+                <Ionicons name="cash" size={Fonts.size.lg} color={theme.primary} />
+                <Text style={[styles.coinText, { color: theme.primary }]}>{player.coins} {t('common.coins')}</Text>
             </View>
         )}
       </View>
 
         <TouchableOpacity 
-            style={styles.myBetsButton}
+            style={[styles.myBetsButton, { backgroundColor: theme.surface }]}
             onPress={() => navigation.navigate('MyBets')}
         >
-            <Ionicons name="list" size={Fonts.size.lg} color={Colors.primary} />
-            <Text style={styles.myBetsText}>Ver Mis Apuestas</Text>
+            <Ionicons name="list" size={Fonts.size.lg} color={theme.primary} />
+            <Text style={[styles.myBetsText, { color: theme.primary }]}>{t('betting.myBets')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
-            style={styles.myBetsButton}
+            style={[styles.myBetsButton, { backgroundColor: theme.surface }]}
             onPress={() => navigation.navigate('PvPBetScreen')}
         >
-            <Ionicons name="people" size={Fonts.size.lg} color={Colors.primary} />
-            <Text style={styles.myBetsText}>Ver Apuestas JcJ Abiertas</Text>
+            <Ionicons name="people" size={Fonts.size.lg} color={theme.primary} />
+            <Text style={[styles.myBetsText, { color: theme.primary }]}>{t('betting.pvpBets')}</Text>
         </TouchableOpacity>
 
       <FlatList
         data={upcomingMatches}
         keyExtractor={(item) => item.id}
         renderItem={renderMatchItem}
-        ListHeaderComponent={<Text style={styles.listHeader}>Próximos Partidos para Apostar</Text>}
-        ListEmptyComponent={<Text style={styles.emptyText}>No hay partidos disponibles para apostar.</Text>}
+        ListHeaderComponent={<Text style={[styles.listHeader, { color: theme.textSecondary }]}>{t('betting.upcomingMatches')}</Text>}
+        ListEmptyComponent={<Text style={[styles.emptyText, { color: theme.textSecondary }]}>{t('betting.noMatches')}</Text>}
         contentContainerStyle={styles.listContent}
       />
     </SafeAreaView>
@@ -100,7 +113,7 @@ const BettingScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   headerContainer: {
     flexDirection: 'row',
@@ -113,26 +126,22 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: Fonts.family.bold,
     fontSize: Fonts.size.xxl,
-    color: Colors.textPrimary,
   },
   walletContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: Colors.surface,
       padding: Spacing.sm,
       borderRadius: 8,
   },
   coinText: {
       fontFamily: Fonts.family.bold,
       fontSize: Fonts.size.md,
-      color: Colors.primary,
       marginLeft: Spacing.sm,
   },
   myBetsButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: Colors.surface,
       padding: Spacing.md,
       borderRadius: 8,
       marginHorizontal: Spacing.md,
@@ -141,13 +150,11 @@ const styles = StyleSheet.create({
   myBetsText: {
       fontFamily: Fonts.family.bold,
       fontSize: Fonts.size.md,
-      color: Colors.primary,
       marginLeft: Spacing.sm,
   },
   listHeader: {
     fontFamily: Fonts.family.bold,
     fontSize: Fonts.size.lg,
-    color: Colors.textSecondary,
     paddingHorizontal: Spacing.md,
     marginBottom: Spacing.sm,
   },
@@ -157,28 +164,25 @@ const styles = StyleSheet.create({
   matchCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
     padding: Spacing.md,
     borderRadius: 8,
     marginHorizontal: Spacing.md,
     marginBottom: Spacing.sm,
   },
   matchEmoji: {
-    fontSize: Fonts.size.xl,
-    marginRight: Spacing.md,
+    fontSize: Fonts.size.xxl,
+    marginRight: Spacing.lg,
   },
   matchInfo: {
       flex: 1,
   },
   matchOpponent: {
     fontFamily: Fonts.family.bold,
-    fontSize: Fonts.size.md,
-    color: Colors.textPrimary,
+    fontSize: Fonts.size.lg,
   },
   matchDate: {
     fontFamily: Fonts.family.regular,
     fontSize: Fonts.size.sm,
-    color: Colors.textSecondary,
     marginTop: Spacing.xs,
   },
   emptyText: {
@@ -186,7 +190,6 @@ const styles = StyleSheet.create({
     marginTop: Spacing.lg,
     fontFamily: Fonts.family.regular,
     fontSize: Fonts.size.md,
-    color: Colors.textSecondary,
   },
 });
 
