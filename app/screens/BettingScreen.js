@@ -8,6 +8,7 @@ import { useTheme } from '../context/ThemeContext';
 import { Fonts, Spacing } from '../constants';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import { supabase } from '../api/supabase';
 
 const BettingScreen = () => {
   const navigation = useNavigation();
@@ -15,10 +16,11 @@ const BettingScreen = () => {
   const [playerId, setPlayerId] = useState(null);
   const { theme } = useTheme();
   const { t } = useTranslation();
+  const [refreshing, setRefreshing] = useState(false);
   
   // Usar hooks de tiempo real
   const { data: players } = useRealtimePlayers();
-  const { data: matches, loading } = useRealtimeMatches();
+  const { data: matches, loading, refetch: refetchMatches } = useRealtimeMatches();
   // Forzar la actualización cuando las apuestas del jugador cambien
   useRealtimePlayerBets(playerId);
 
@@ -32,27 +34,74 @@ const BettingScreen = () => {
       .sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [matches]);
 
-  // Cargar jugador actual
+  // Cargar jugador actual (siempre desde DB para saldo fresco)
   useFocusEffect(
     useCallback(() => {
       const loadPlayer = async () => {
         try {
           const id = await AsyncStorage.getItem('selectedPlayerId');
           setPlayerId(id);
-          const currentPlayer = players.find(p => p.id === id);
-          setPlayer(currentPlayer);
+          if (id) {
+            const { data, error } = await supabase
+              .from('players')
+              .select('*')
+              .eq('id', id)
+              .single();
+            if (!error && data) {
+              setPlayer(data);
+            }
+          }
         } catch (e) {
           console.error('Failed to load player data.', e);
         }
       };
-      
-      if (players.length > 0) {
-        loadPlayer();
-      }
-    }, [players])
+      loadPlayer();
+    }, [])
   );
 
+  // Suscripción en tiempo real al jugador actual para actualizar coins al vuelo
+  React.useEffect(() => {
+    if (!playerId) return;
+    const channel = supabase
+      .channel(`realtime-player-${playerId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'players', filter: `id=eq.${playerId}` },
+        (payload) => {
+          const latest = payload.new;
+          if (latest) setPlayer(latest);
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [playerId]);
+
   // Removed loading check - we'll use fade-in instead
+
+  const onRefresh = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      const id = await AsyncStorage.getItem('selectedPlayerId');
+      if (id) {
+        const { data, error } = await supabase
+          .from('players')
+          .select('*')
+          .eq('id', id)
+          .single();
+        if (!error && data) {
+          setPlayer(data);
+        }
+      }
+      // Refrescar lista de partidos
+      refetchMatches();
+    } catch (e) {
+      console.error('Failed to refresh player coins', e);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchMatches]);
 
   const renderMatchItem = ({ item, index }) => (
     <FadeInView delay={index * 100}>
@@ -107,6 +156,8 @@ const BettingScreen = () => {
         ListHeaderComponent={<Text style={[styles.listHeader, { color: theme.textSecondary }]}>{t('betting.upcomingMatches')}</Text>}
         ListEmptyComponent={<Text style={[styles.emptyText, { color: theme.textSecondary }]}>{t('betting.noMatches')}</Text>}
         contentContainerStyle={styles.listContent}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
       />
     </SafeAreaView>
   );

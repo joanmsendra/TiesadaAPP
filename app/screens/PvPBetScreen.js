@@ -22,6 +22,18 @@ const PvPBetScreen = () => {
     const { data: myBets } = useRealtimePlayerBets(playerId);
     const { data: openBets, loading, refetch: refetchOpenBets } = useRealtimeOpenPvPBets(playerId);
 
+    // Incluir también mis propias apuestas PvP en estado 'proposed'
+    const myProposedPvP = useMemo(() => {
+        return (myBets || []).filter(b => b.betMode === 'pvp' && b.status === 'proposed' && b.proposerId === playerId);
+    }, [myBets, playerId]);
+
+    const combinedBets = useMemo(() => {
+        // Unir las abiertas de otros + las mías propuestas (evitar duplicados por id)
+        const map = new Map();
+        [...(openBets || []), ...(myProposedPvP || [])].forEach(b => map.set(b.id, b));
+        return Array.from(map.values());
+    }, [openBets, myProposedPvP]);
+
     const playersMap = useMemo(() => players.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}), [players]);
     const matchesMap = useMemo(() => matches.reduce((acc, m) => ({ ...acc, [m.id]: m }), {}), [matches]);
 
@@ -122,9 +134,15 @@ const PvPBetScreen = () => {
         
         const potentialGain = item.amount;
 
+        const isMine = item.proposerId === playerId;
+
         return (
             <View style={[styles.betCard, { backgroundColor: theme.surface }]}>
-                <Text style={[styles.proposerText, { color: theme.textPrimary }]}>{t('pvpBets.proposedBy', 'Proposada per')}: {proposer.name}</Text>
+                <Text style={[styles.proposerText, { color: theme.textPrimary }]}>
+                    {t('pvpBets.proposedBy', 'Proposada per')}: {proposer.name}
+                    {isMine && ' · '}
+                    {isMine && <Text style={{ color: theme.primary }}>{t('common.yours', 'Teva')}</Text>}
+                </Text>
                 <Text style={[styles.matchText, { color: theme.textSecondary }]}>{t('common.match')}: vs {match.opponent}</Text>
                 <Text style={[styles.betDetailText, { color: theme.textPrimary }]}>{renderBetDetails(item)}</Text>
                 <View style={[styles.amountContainer, { borderColor: theme.border }]}>
@@ -134,9 +152,11 @@ const PvPBetScreen = () => {
                         <Text style={[styles.riskText, { color: theme.error }]}>{t('myBets.risk')}: {potentialLoss} {t('common.coins').toLowerCase()}</Text>
                     </View>
                 </View>
-                <TouchableOpacity style={[styles.acceptButton, { backgroundColor: theme.success }]} onPress={() => handleAcceptBet(item)}>
-                    <Text style={[styles.acceptButtonText, { color: theme.white }]}>{t('pvpBets.accept')}</Text>
-                </TouchableOpacity>
+                {!isMine && (
+                    <TouchableOpacity style={[styles.acceptButton, { backgroundColor: theme.success }]} onPress={() => handleAcceptBet(item)}>
+                        <Text style={[styles.acceptButtonText, { color: theme.white }]}>{t('pvpBets.accept')}</Text>
+                    </TouchableOpacity>
+                )}
             </View>
         );
     };
@@ -153,7 +173,7 @@ const PvPBetScreen = () => {
             )}
         </View>
       <FlatList
-        data={openBets}
+        data={combinedBets}
         keyExtractor={(item) => item.id}
         renderItem={renderBetItem}
         ListEmptyComponent={!loading && <Text style={[styles.emptyText, { color: theme.textSecondary }]}>{t('pvpBets.noBets')}</Text>}

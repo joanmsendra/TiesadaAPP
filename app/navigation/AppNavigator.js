@@ -8,6 +8,8 @@ import PlayerDetailsScreen from '../screens/PlayerDetailsScreen';
 import MakeBetScreen from '../screens/MakeBetScreen';
 import MyBetsScreen from '../screens/MyBetsScreen';
 import PvPBetScreen from '../screens/PvPBetScreen';
+import TeamLoginScreen from '../screens/TeamLoginScreen';
+import AuthLoadingScreen from '../screens/AuthLoadingScreen';
 import { useTheme } from '../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -19,7 +21,7 @@ const AppNavigator = () => {
     const { t } = useTranslation();
   return (
     <Stack.Navigator 
-        initialRouteName="PlayerSelection"
+        initialRouteName="AuthLoading"
         screenOptions={{
             headerStyle: {
                 backgroundColor: theme.surface,
@@ -33,6 +35,16 @@ const AppNavigator = () => {
             }
         }}
     >
+      <Stack.Screen 
+        name="AuthLoading"
+        component={AuthLoadingScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TeamLogin"
+        component={TeamLoginScreen}
+        options={{ headerShown: false }}
+      />
       <Stack.Screen 
         name="PlayerSelection" 
         component={PlayerSelectionScreen} 

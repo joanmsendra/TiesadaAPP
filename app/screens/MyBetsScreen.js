@@ -53,27 +53,25 @@ const MyBetsScreen = () => {
     const statusOrder = {
       'pending': 1,
       'active': 2,
+      'proposed': 3, // JcJ propuestas (casi pendientes) también arriba
       'won': 3,
       'lost': 4,
       'void': 5,
     };
 
     return [...bets].sort((a, b) => {
-      const playerStatusA = getPlayerStatus(a, playerId);
-      const playerStatusB = getPlayerStatus(b, playerId);
-      
-      // Primero, ordenar por estado (pendientes y activas primero)
-      const orderA = statusOrder[playerStatusA] || 99;
-      const orderB = statusOrder[playerStatusB] || 99;
-      if (orderA !== orderB) {
-        return orderA - orderB;
-      }
+      const statusA = getPlayerStatus(a, playerId);
+      const statusB = getPlayerStatus(b, playerId);
 
-      // Si el estado es el mismo, ordenar por fecha del partido (más nuevo primero)
-      const matchA = matchesMap[a.matchId];
-      const matchB = matchesMap[b.matchId];
-      if (!matchA || !matchB) return 0;
-      return new Date(matchB.date) - new Date(a.date);
+      // Grupo 0: pendientes/activas. Grupo 1: el resto (proposed, won, lost, void)
+      const groupA = (statusA === 'pending' || statusA === 'active') ? 0 : 1;
+      const groupB = (statusB === 'pending' || statusB === 'active') ? 0 : 1;
+      if (groupA !== groupB) return groupA - groupB;
+
+      // Dentro de cada grupo, ordenar estrictamente por fecha de realización (created_at), más recientes primero
+      const createdA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const createdB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return createdB - createdA;
     });
   }, [bets, matchesMap, playerId]);
 
@@ -84,7 +82,10 @@ const MyBetsScreen = () => {
       }
 
       if (bet.type === 'result') {
-          return t('myBets.resultBet', `Resultat: ${match.opponent} ${bet.details.us}-${bet.details.them}`);
+          const us = bet.details?.us ?? 0;
+          const them = bet.details?.them ?? 0;
+          // Mostrar claramente el marcador apostado
+          return `${t('myBets.resultBet', 'Resultat')}: ${us}-${them} ${t('common.against', 'vs')} ${match.opponent}`;
       }
       if (bet.type === 'player_event') {
           const player = playersMap[bet.details.playerId];

@@ -204,11 +204,12 @@ export const getPlayers = async () => {
 };
 
 // --- Bet Functions ---
-export const getPlayerBets = async (playerId) => {
+export const getPlayerBets = async (playerId, teamId = 'tiesada-fc-default') => {
     try {
         const { data, error } = await supabase
             .from('bets')
             .select('*')
+            .eq('team_id', teamId)
             .or(`and(bet_mode.eq.standard,player_id.eq.${playerId}),and(bet_mode.eq.pvp,or(proposer_id.eq.${playerId},accepter_id.eq.${playerId}))`)
             .order('created_at', { ascending: false });
         
@@ -224,7 +225,7 @@ export const getPlayerBets = async (playerId) => {
     }
 };
 
-export const addBet = async (betData) => {
+export const addBet = async (betData, teamId = 'tiesada-fc-default') => {
     try {
         // Verificar y descontar monedas del jugador
         const { data: player, error: playerError } = await supabase
@@ -259,6 +260,7 @@ export const addBet = async (betData) => {
             player_id: betData.playerId,
             status: 'pending',
             bet_mode: 'standard',
+            team_id: teamId,
             created_at: new Date().toISOString(),
         };
         delete newBet.matchId;
@@ -286,7 +288,7 @@ export const addBet = async (betData) => {
     }
 };
 
-export const addPvPBet = async (betData) => {
+export const addPvPBet = async (betData, teamId = 'tiesada-fc-default') => {
     try {
         // Verificar y descontar monedas del proposer
         const { data: player, error: playerError } = await supabase
@@ -322,6 +324,7 @@ export const addPvPBet = async (betData) => {
             status: 'proposed',
             bet_mode: 'pvp',
             accepter_id: null,
+            team_id: teamId,
             created_at: new Date().toISOString(),
         };
         delete newBet.matchId;
@@ -421,7 +424,7 @@ export const acceptPvPBet = async (betId, accepterId) => {
     }
 };
 
-export const getOpenPvPBets = async (playerId) => {
+export const getOpenPvPBets = async (playerId, teamId = 'tiesada-fc-default') => {
     // Si no hay playerId, no podemos buscar apuestas, devolvemos un array vacío.
     if (!playerId) {
         return [];
@@ -430,6 +433,7 @@ export const getOpenPvPBets = async (playerId) => {
         const { data, error } = await supabase
             .from('bets')
             .select('*')
+            .eq('team_id', teamId)
             .eq('bet_mode', 'pvp')
             .eq('status', 'proposed')
             .neq('proposer_id', playerId)
@@ -496,12 +500,16 @@ export const resolveBetsForMatch = async (matchId) => {
                     }
                 } else if (bet.type === 'player_event') {
                     const { playerId, event } = bet.details;
-                    const playerStat = match.stats?.find(s => s.playerId === playerId);
-                    const goals = playerStat?.goals || 0;
-                    const assists = playerStat?.assists || 0;
-                    const yellowCards = playerStat?.yellowCards || 0;
-                    const redCards = playerStat?.redCards || 0;
-                    const cagadas = playerStat?.cagadas || 0; // <-- Leer stat
+                    const statsArray = Array.isArray(match.stats) ? match.stats : [];
+                    const playerStat = statsArray.find(s => {
+                        const statPlayerId = s.playerId ?? s.player_id ?? s.id;
+                        return String(statPlayerId) === String(playerId);
+                    });
+                    const goals = playerStat?.goals ?? playerStat?.g ?? 0;
+                    const assists = playerStat?.assists ?? playerStat?.a ?? 0;
+                    const yellowCards = playerStat?.yellowCards ?? playerStat?.yellow_cards ?? playerStat?.yc ?? 0;
+                    const redCards = playerStat?.redCards ?? playerStat?.red_cards ?? playerStat?.rc ?? 0;
+                    const cagadas = playerStat?.cagadas ?? playerStat?.errors ?? 0; // <-- Leer stat
                     
                     switch (event) {
                         case 'scores':
@@ -747,11 +755,12 @@ export const resolveCustomPvPBet = async (betId, resolution) => {
 };
 
 // --- Global Lineup Functions (Simplified) ---
-export const getGlobalLineupPositions = async () => {
+export const getGlobalLineupPositions = async (teamId = 'tiesada-fc-default') => {
     try {
         const { data, error } = await supabase
             .from('global_lineup_positions')
-            .select('*');
+            .select('*')
+            .eq('team_id', teamId);
 
         if (error) {
             console.error('Error getting global lineup positions:', error);
@@ -765,7 +774,7 @@ export const getGlobalLineupPositions = async () => {
     }
 };
 
-export const upsertGlobalLineupPosition = async (playerId, x, y) => {
+export const upsertGlobalLineupPosition = async (playerId, x, y, teamId = 'tiesada-fc-default') => {
     try {
         const { data, error } = await supabase
             .from('global_lineup_positions')
@@ -774,7 +783,8 @@ export const upsertGlobalLineupPosition = async (playerId, x, y) => {
                     player_id: playerId,
                     position_x: x,
                     position_y: y,
-                    updated_at: new Date().toISOString()
+                    updated_at: new Date().toISOString(),
+                    team_id: teamId
                 },
                 { onConflict: 'player_id' }
             )
@@ -793,12 +803,13 @@ export const upsertGlobalLineupPosition = async (playerId, x, y) => {
     }
 };
 
-export const deleteGlobalLineupPosition = async (playerId) => {
+export const deleteGlobalLineupPosition = async (playerId, teamId = 'tiesada-fc-default') => {
     try {
         const { error } = await supabase
             .from('global_lineup_positions')
             .delete()
-            .eq('player_id', playerId);
+            .eq('player_id', playerId)
+            .eq('team_id', teamId);
 
         if (error) {
             console.error('Error deleting global lineup position:', error);
@@ -812,14 +823,15 @@ export const deleteGlobalLineupPosition = async (playerId) => {
 };
 
 // --- Drawing Functions ---
-export const addDrawingStroke = async (strokeData, color = '#FF0000', width = 3.0) => {
+export const addDrawingStroke = async (strokeData, color = '#FF0000', width = 3.0, teamId = 'tiesada-fc-default') => {
     try {
         const { data, error } = await supabase
             .from('drawing_strokes')
             .insert({
                 stroke_data: strokeData,
                 color: color,
-                width: width
+                width: width,
+                team_id: teamId
             })
             .select()
             .single();
@@ -836,11 +848,12 @@ export const addDrawingStroke = async (strokeData, color = '#FF0000', width = 3.
     }
 };
 
-export const getDrawingStrokes = async () => {
+export const getDrawingStrokes = async (teamId = 'tiesada-fc-default') => {
     try {
         const { data, error } = await supabase
             .from('drawing_strokes')
             .select('*')
+            .eq('team_id', teamId)
             .order('created_at', { ascending: true });
 
         if (error) {
@@ -864,5 +877,22 @@ export const deleteOldStrokes = async () => {
         }
     } catch (error) {
         console.error('Failed to clean old strokes.', error);
+    }
+};
+
+export const deleteDrawingStroke = async (strokeId) => {
+    try {
+        const { error } = await supabase
+            .from('drawing_strokes')
+            .delete()
+            .eq('id', strokeId);
+        if (error) {
+            console.error('Error deleting drawing stroke:', error);
+            return false;
+        }
+        return true;
+    } catch (error) {
+        console.error('Failed to delete drawing stroke.', error);
+        return false;
     }
 };

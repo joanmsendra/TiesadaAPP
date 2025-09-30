@@ -112,8 +112,10 @@ export const useRealtimeData = (table, options = {}) => {
 /**
  * Hook específico para partidos con transformación
  */
-export const useRealtimeMatches = () => {
+export const useRealtimeMatches = (teamId = 'tiesada-fc-default') => {
   const result = useRealtimeData('matches', {
+    select: '*',
+    filter: { team_id: teamId },
     orderBy: { column: 'date', ascending: true },
     transform: (matches) => matches || [],
   });

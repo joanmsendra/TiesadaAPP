@@ -5,7 +5,7 @@ import { GestureHandlerRootView, GestureDetector, Gesture } from 'react-native-g
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
 import { Image } from 'expo-image';
 
-import { getPlayers, getGlobalLineupPositions, upsertGlobalLineupPosition, deleteGlobalLineupPosition, addDrawingStroke, getDrawingStrokes } from '../api/storage';
+import { getPlayers, getGlobalLineupPositions, upsertGlobalLineupPosition, deleteGlobalLineupPosition, addDrawingStroke, getDrawingStrokes, deleteDrawingStroke } from '../api/storage';
 import { supabase } from '../api/supabase';
 import { useTheme } from '../context/ThemeContext';
 import { Fonts, Spacing } from '../constants';
@@ -106,8 +106,8 @@ const LineupScreen = () => {
                 setLoading(true);
                 try {
                     const allPlayers = await getPlayers();
-                    const positions = await getGlobalLineupPositions();
-                    const strokes = await getDrawingStrokes();
+                    const positions = await getGlobalLineupPositions('tiesada-fc-default');
+                    const strokes = await getDrawingStrokes('tiesada-fc-default');
                     setPlayers(allPlayers);
                     setPlayerPositions(positions);
                     setDrawingStrokes(strokes);
@@ -128,7 +128,7 @@ const LineupScreen = () => {
             .channel('global_lineup_positions')
             .on(
                 'postgres_changes',
-                { event: '*', schema: 'public', table: 'global_lineup_positions' },
+                { event: '*', schema: 'public', table: 'global_lineup_positions', filter: 'team_id=eq.tiesada-fc-default' },
                 (payload) => {
                     if (payload.eventType === 'INSERT') {
                         setPlayerPositions(current => {
@@ -160,7 +160,7 @@ const LineupScreen = () => {
             .channel('drawing_strokes')
             .on(
                 'postgres_changes',
-                { event: '*', schema: 'public', table: 'drawing_strokes' },
+                { event: '*', schema: 'public', table: 'drawing_strokes', filter: 'team_id=eq.tiesada-fc-default' },
                 (payload) => {
                     if (payload.eventType === 'INSERT') {
                         setDrawingStrokes(current => [...current, payload.new]);
@@ -219,7 +219,7 @@ const LineupScreen = () => {
             }]; 
         });
         
-        await upsertGlobalLineupPosition(playerId, percentX, percentY);
+        await upsertGlobalLineupPosition(playerId, percentX, percentY, 'tiesada-fc-default');
     };
     
     const handleAddPlayer = async (player) => {
@@ -235,14 +235,14 @@ const LineupScreen = () => {
                 id: `temp-${player.id}-${Date.now()}` 
             }]);
             
-            await upsertGlobalLineupPosition(player.id, percentX, percentY);
+            await upsertGlobalLineupPosition(player.id, percentX, percentY, 'tiesada-fc-default');
         }
     };
 
     const handleRemovePlayer = async (playerId) => {
         // Optimistic update: remove from state immediately
         setPlayerPositions(current => current.filter(p => p.player_id !== playerId));
-        await deleteGlobalLineupPosition(playerId);
+        await deleteGlobalLineupPosition(playerId, 'tiesada-fc-default');
     };
 
     // Funciones de dibujo
@@ -276,8 +276,14 @@ const LineupScreen = () => {
         }
         
         // Guardar el trazo en la base de datos
-        await addDrawingStroke(currentStroke, theme.primary, 3);
+        const saved = await addDrawingStroke(currentStroke, theme.primary, 3, 'tiesada-fc-default');
         setCurrentStroke([]);
+        // Programar borrado exacto a los 5s
+        if (saved && saved.id) {
+            setTimeout(() => {
+                deleteDrawingStroke(saved.id);
+            }, 5000);
+        }
     };
     
     if (loading) {
@@ -342,17 +348,22 @@ const LineupScreen = () => {
                                     height={fieldLayout.height}
                                 >
                                     {/* Trazos guardados */}
-                                    {drawingStrokes.map((stroke) => (
-                                        <Path
-                                            key={stroke.id}
-                                            d={strokeToPath(stroke.stroke_data)}
-                                            stroke={stroke.color}
-                                            strokeWidth={stroke.width}
-                                            fill="none"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                        />
-                                    ))}
+                                    {drawingStrokes
+                                        .filter(stroke => {
+                                            const created = new Date(stroke.created_at).getTime();
+                                            return Date.now() - created <= 5000;
+                                        })
+                                        .map((stroke) => (
+                                            <Path
+                                                key={stroke.id}
+                                                d={strokeToPath(stroke.stroke_data)}
+                                                stroke={stroke.color}
+                                                strokeWidth={stroke.width}
+                                                fill="none"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                            />
+                                        ))}
                                     
                                     {/* Trazo actual */}
                                     {currentStroke.length > 1 && (

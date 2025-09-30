@@ -54,7 +54,9 @@ const MakeBetScreen = () => {
                 case 'cagadas': odds = BET_ODDS.PLAYER_CAGADAS; break;
             }
         } else if (betType === 'custom_pvp') {
-            odds = parseFloat(customOdds) || 0;
+            // Permitir coma como separador decimal
+            const parsed = parseFloat(String(customOdds).replace(',', '.'));
+            odds = isNaN(parsed) ? 0 : parsed;
         }
         setPotentialWinnings(amount * odds);
     } else {
@@ -138,7 +140,8 @@ const MakeBetScreen = () => {
                     Alert.alert(t('alerts.error'), t('makeBet.emptyDescription', 'La descripción de la apuesta no puede estar vacía.'));
                     return;
                 }
-                const odds = parseFloat(customOdds);
+                // Permitir coma como separador decimal
+                const odds = parseFloat(String(customOdds).replace(',', '.'));
                 if (isNaN(odds) || odds <= 1) {
                     Alert.alert(t('alerts.error'), t('makeBet.invalidOdds', 'La cuota debe ser un número mayor que 1.'));
                     return;
