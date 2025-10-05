@@ -42,7 +42,7 @@ export const getMatch = async (matchId) => {
     }
 };
 
-export const addMatch = async (matchData) => {
+export const addMatch = async (matchData, teamId = 'tiesada-fc-default') => {
     try {
         const newMatch = {
             id: uuidv4(),
@@ -51,6 +51,7 @@ export const addMatch = async (matchData) => {
             attending: matchData.attending || [],
             lineup: matchData.lineup || { 'gk': null, 'def1': null, 'def2': null, 'fwd1': null, 'fwd2': null },
             emoji: matchData.emoji || '⚽️',
+            team_id: teamId,
         };
 
         const { data, error } = await supabase

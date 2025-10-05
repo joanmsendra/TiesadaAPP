@@ -1,12 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
 
 export const PLAYERS = [
-  { id: '1', name: 'Joan', position: 'Portero', photo: 'https://placehold.co/100x100/3498db/FFFFFF/png?text=J', coins: 1000 },
-  { id: '2', name: 'Guille', position: 'Defensa', photo: 'https://placehold.co/100x100/2ecc71/FFFFFF/png?text=G', coins: 1000 },
+  { id: '1', name: 'Medina', position: 'Portero', photo: 'https://placehold.co/100x100/3498db/FFFFFF/png?text=J', coins: 1000 },
+  { id: '2', name: 'Sentis', position: 'Defensa', photo: 'https://placehold.co/100x100/2ecc71/FFFFFF/png?text=G', coins: 1000 },
   { id: '3', name: 'Ivan', position: 'Defensa', photo: 'https://placehold.co/100x100/e74c3c/FFFFFF/png?text=I', coins: 1000 },
-  { id: '4', name: 'Jandro', position: 'Medio', photo: 'https://placehold.co/100x100/f1c40f/FFFFFF/png?text=J', coins: 1000 },
-  { id: '5', name: 'Jota', position: 'Medio', photo: 'https://placehold.co/100x100/9b59b6/FFFFFF/png?text=J', coins: 1000 },
-  { id: '6', name: 'Carrasco', position: 'Delantero', photo: 'https://placehold.co/100x100/1abc9c/FFFFFF/png?text=C', coins: 1000 },
+  { id: '4', name: 'Lopa', position: 'Medio', photo: 'https://placehold.co/100x100/f1c40f/FFFFFF/png?text=J', coins: 1000 },
+  { id: '5', name: 'Aron', position: 'Medio', photo: 'https://placehold.co/100x100/9b59b6/FFFFFF/png?text=J', coins: 1000 },
+  { id: '6', name: 'Roi', position: 'Delantero', photo: 'https://placehold.co/100x100/1abc9c/FFFFFF/png?text=C', coins: 1000 },
   { id: '7', name: 'Toni', position: 'Delantero', photo: 'https://placehold.co/100x100/e67e22/FFFFFF/png?text=T', coins: 1000 },
 ];
 
