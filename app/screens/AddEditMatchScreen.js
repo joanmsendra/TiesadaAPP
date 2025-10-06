@@ -39,6 +39,7 @@ const AddEditMatchScreen = () => {
   const [emoji, setEmoji] = useState('⚽️');
   const [date, setDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [played, setPlayed] = useState(false);
   const [result, setResult] = useState({ us: '0', them: '0' });
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -122,7 +123,7 @@ const AddEditMatchScreen = () => {
       });
       setStats(newStats);
     }
-  }, [attendingPlayerIds, played, allPlayers]);
+  }, [attendingPlayerIds, played, allPlayers, stats]);
   
   const handleStatChange = (playerId, field, value) => {
     const newStats = stats.map(stat => {
@@ -222,18 +223,44 @@ const AddEditMatchScreen = () => {
           placeholderTextColor={theme.textSecondary}
         />
 
-        <Text style={[styles.label, { color: theme.textPrimary }]}>{t('addEditMatch.date')} {t('addEditMatch.time')}</Text>
+        <Text style={[styles.label, { color: theme.textPrimary }]}>{t('addEditMatch.date')}</Text>
         <TouchableOpacity onPress={() => setShowDatePicker(true)} style={[styles.input, { backgroundColor: theme.surface }]}>
-          <Text style={[styles.dateText, { color: theme.textPrimary }]}>{date.toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'short' })}</Text>
+          <Text style={[styles.dateText, { color: theme.textPrimary }]}>{date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
         </TouchableOpacity>
         {showDatePicker && (
           <DateTimePicker
             value={date}
-            mode="datetime"
-            display="default"
+            mode="date"
+            display={Platform.OS === 'android' ? 'calendar' : 'spinner'}
             onChange={(event, selectedDate) => {
               setShowDatePicker(Platform.OS === 'ios');
-              if (selectedDate) setDate(selectedDate);
+              if (selectedDate) {
+                const updated = new Date(date);
+                updated.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+                setDate(updated);
+                if (Platform.OS === 'android') setShowDatePicker(false);
+              }
+            }}
+          />
+        )}
+
+        <Text style={[styles.label, { color: theme.textPrimary }]}>{t('addEditMatch.time')}</Text>
+        <TouchableOpacity onPress={() => setShowTimePicker(true)} style={[styles.input, { backgroundColor: theme.surface }]}>
+          <Text style={[styles.dateText, { color: theme.textPrimary }]}>{date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</Text>
+        </TouchableOpacity>
+        {showTimePicker && (
+          <DateTimePicker
+            value={date}
+            mode="time"
+            display={Platform.OS === 'android' ? 'clock' : 'spinner'}
+            onChange={(event, selectedTime) => {
+              setShowTimePicker(Platform.OS === 'ios');
+              if (selectedTime) {
+                const updated = new Date(date);
+                updated.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+                setDate(updated);
+                if (Platform.OS === 'android') setShowTimePicker(false);
+              }
             }}
           />
         )}
@@ -349,7 +376,7 @@ const AddEditMatchScreen = () => {
                   return (
                     <View key={bet.id} style={[styles.betContainer, { backgroundColor: theme.surface }]}>
                       <Text style={[styles.betDescription, { color: theme.textPrimary }]}>
-                        "{bet.details.custom_description}"
+                        {`"${bet.details.custom_description}"`}
                       </Text>
                       <Text style={[styles.betPlayers, { color: theme.textSecondary }]}>
                         {proposer?.name} vs {accepter?.name} - {bet.amount} {t('common.coins').toLowerCase()} (x{bet.details.custom_odds})

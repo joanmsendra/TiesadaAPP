@@ -97,15 +97,27 @@ export const updateMatch = async (matchId, matchData) => {
 
 export const deleteMatch = async (matchId, teamId = 'tiesada-fc-default') => {
     try {
-        const { error } = await supabase
+        // 1) Delete related bets to avoid FK constraint errors
+        const { error: betsError } = await supabase
+            .from('bets')
+            .delete()
+            .eq('match_id', matchId)
+            .eq('team_id', teamId);
+        if (betsError) {
+            console.error(`Error deleting bets for match ${matchId}:`, betsError);
+            throw betsError;
+        }
+
+        // 2) Delete the match
+        const { error: matchError } = await supabase
             .from('matches')
             .delete()
             .eq('id', matchId)
             .eq('team_id', teamId);
 
-        if (error) {
-            console.error(`Error deleting match ${matchId}:`, error);
-            throw error;
+        if (matchError) {
+            console.error(`Error deleting match ${matchId}:`, matchError);
+            throw matchError;
         }
         return true;
     } catch (error) {
