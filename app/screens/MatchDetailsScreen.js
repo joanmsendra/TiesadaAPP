@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, Alert, SafeAreaView, TouchableOpacity, Image, ScrollView, Linking, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, Alert, SafeAreaView, TouchableOpacity, Image, Linking, RefreshControl } from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { getMatch, deleteMatch } from '../api/storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRealtimePlayers } from '../hooks/useRealtimeData';
 import { supabase } from '../api/supabase';
 import { useTheme } from '../context/ThemeContext';
@@ -118,8 +119,13 @@ const MatchDetailsScreen = () => {
         {
           text: t('common.delete'),
           onPress: async () => {
-            await deleteMatch(matchId);
-            navigation.goBack();
+            try {
+              const teamId = (await AsyncStorage.getItem('selectedTeamId')) || 'tiesada-fc-default';
+              await deleteMatch(matchId, teamId);
+              navigation.goBack();
+            } catch (_err) {
+              Alert.alert(t('alerts.error'), t('addEditMatch.deleteError', 'No s\'ha pogut eliminar el partit.'));
+            }
           },
           style: 'destructive',
         },

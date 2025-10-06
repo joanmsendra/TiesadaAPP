@@ -95,18 +95,22 @@ export const updateMatch = async (matchId, matchData) => {
   }
 };
 
-export const deleteMatch = async (matchId) => {
+export const deleteMatch = async (matchId, teamId = 'tiesada-fc-default') => {
     try {
         const { error } = await supabase
             .from('matches')
             .delete()
-            .eq('id', matchId);
-        
+            .eq('id', matchId)
+            .eq('team_id', teamId);
+
         if (error) {
             console.error(`Error deleting match ${matchId}:`, error);
+            throw error;
         }
+        return true;
     } catch (error) {
         console.error(`Failed to delete match ${matchId}.`, error);
+        throw error;
     }
 };
 
