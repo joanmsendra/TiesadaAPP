@@ -14,7 +14,19 @@ const AppContent = () => {
   const isLoadingComplete = useCachedResources();
 
   useEffect(() => {
-    initializeData();
+    const initApp = async () => {
+      try {
+        console.log('Iniciando aplicación...');
+        const success = await initializeData();
+        if (!success) {
+          console.warn('Hubo problemas inicializando la aplicación, pero continuando...');
+        }
+      } catch (error) {
+        console.error('Error crítico en la inicialización:', error);
+      }
+    };
+
+    initApp();
 
     if (Platform.OS === 'android') {
       if (UIManager.setLayoutAnimationEnabledExperimental) {

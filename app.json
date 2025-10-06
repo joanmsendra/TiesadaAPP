@@ -23,7 +23,17 @@
         "NSCameraUsageDescription": "Necessitem accedir a la càmera per actualitzar la foto de perfil.",
         "NSPhotoLibraryUsageDescription": "Necessitem accedir a la galeria per seleccionar la foto de perfil.",
         "NSPhotoLibraryAddUsageDescription": "Necessitem guardar imatges a la teva galeria.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSExceptionDomains": {
+            "dxveaffgjuxkajubifxd.supabase.co": {
+              "NSExceptionAllowsInsecureHTTPLoads": false,
+              "NSExceptionMinimumTLSVersion": "TLSv1.2",
+              "NSIncludesSubdomains": true
+            }
+          }
+        }
       }
     },
     "android": {
