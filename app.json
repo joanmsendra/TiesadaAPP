@@ -70,7 +70,15 @@
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/escudo.png",
+          "color": "#1E3A8A",
+          "sounds": []
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

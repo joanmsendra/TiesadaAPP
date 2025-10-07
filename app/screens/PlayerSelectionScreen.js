@@ -36,6 +36,19 @@ const PlayerSelectionScreen = ({ navigation }) => {
   const handleSelectPlayer = async (playerId) => {
     try {
       await AsyncStorage.setItem('selectedPlayerId', playerId);
+      
+      // Registrar notificaciones push para este jugador
+      try {
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          await savePushToken(playerId, token);
+          console.log('✅ Notificaciones push registradas para el jugador:', playerId);
+        }
+      } catch (notificationError) {
+        console.warn('⚠️ No se pudieron registrar las notificaciones:', notificationError);
+        // No bloqueamos el flujo si fallan las notificaciones
+      }
+      
       navigation.replace('Main');
     } catch (e) {
       console.error('Failed to save player id.', e);
