@@ -111,19 +111,21 @@ const AddEditMatchScreen = () => {
     // Cuando la lista de asistentes cambie y el partido esté marcado como 'jugado',
     // actualizamos la lista de jugadores para los que se pueden introducir estadísticas.
     if (played) {
-      const attendingPlayers = allPlayers.filter(p => attendingPlayerIds.includes(p.id));
-      const newStats = attendingPlayers.map(p => {
-        // Mantenemos las stats existentes si el jugador ya estaba en la lista
-        const existingStat = stats.find(s => s.playerId === p.id);
-        if (existingStat) return existingStat;
-        // Añadimos un nuevo objeto de stats para el nuevo jugador
-        return {
-          playerId: p.id, name: p.name, goals: '0', assists: '0', yellowCards: '0', redCards: '0', cagadas: '0'
-        };
+      setStats(prevStats => {
+        const attendingPlayers = allPlayers.filter(p => attendingPlayerIds.includes(p.id));
+        const newStats = attendingPlayers.map(p => {
+          // Mantenemos las stats existentes si el jugador ya estaba en la lista
+          const existingStat = prevStats.find(s => s.playerId === p.id);
+          if (existingStat) return existingStat;
+          // Añadimos un nuevo objeto de stats para el nuevo jugador
+          return {
+            playerId: p.id, name: p.name, goals: '0', assists: '0', yellowCards: '0', redCards: '0', cagadas: '0'
+          };
+        });
+        return newStats;
       });
-      setStats(newStats);
     }
-  }, [attendingPlayerIds, played, allPlayers, stats]);
+  }, [attendingPlayerIds, played, allPlayers]);
   
   const handleStatChange = (playerId, field, value) => {
     const newStats = stats.map(stat => {
